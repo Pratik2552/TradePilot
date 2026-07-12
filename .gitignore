@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+
+# Temporary files
+*.log
+
+# Environment variables
+.env
+
+# Large cached market data (we'll generate these locally)
+data/cache/
