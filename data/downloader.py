@@ -3,7 +3,6 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
-
 # -------------------------------------------------------------------
 # Configuration
 # -------------------------------------------------------------------
@@ -21,9 +20,8 @@ CACHE_DIR.mkdir(exist_ok=True)
 
 def get_cache_path(symbol: str) -> Path:
     """
-    Returns the cache file path for a symbol.
+    Returns the cache file path for a stock.
     """
-
     return CACHE_DIR / f"{symbol}.csv"
 
 
@@ -31,33 +29,52 @@ def cache_exists(symbol: str) -> bool:
     """
     Checks whether cached history exists.
     """
-
     return get_cache_path(symbol).exists()
+
+
+def save_cache(symbol: str, df: pd.DataFrame):
+    """
+    Saves dataframe to cache.
+    """
+    df.to_csv(
+        get_cache_path(symbol),
+        index=False,
+    )
+
+
+def load_cache(symbol: str) -> pd.DataFrame:
+    """
+    Loads dataframe from cache.
+    """
+    return pd.read_csv(
+        get_cache_path(symbol),
+        parse_dates=["Date"],
+    )
 
 
 # -------------------------------------------------------------------
 # Download Functions
 # -------------------------------------------------------------------
 
-def download_full_history(
-    symbol: str,
-    start_date=None,
-    end_date=None,
-) -> pd.DataFrame:
+def download_full_history(symbol: str) -> pd.DataFrame:
     """
-    Downloads the complete historical data from Yahoo Finance.
+    Downloads the complete daily history from Yahoo Finance.
     """
 
+    print(f"Downloading {symbol}...")
+
     df = yf.download(
-        symbol,
-        start=start_date,
-        end=end_date,
-        auto_adjust=True,
+        tickers=symbol,
+        period="max",
+        interval="1d",
+        auto_adjust=False,
         progress=False,
         multi_level_index=False,
     )
 
     df.reset_index(inplace=True)
+
+    print(f"Downloaded {len(df)} candles.")
 
     return df
 
@@ -66,25 +83,26 @@ def download_full_history(
 # Public API
 # -------------------------------------------------------------------
 
-def get_stock_data(
-    symbol: str,
-    start_date=None,
-    end_date=None,
-) -> pd.DataFrame:
+def get_stock_data(symbol: str) -> pd.DataFrame:
     """
-    Main function used by the rest of the application.
+    Returns historical data for a stock.
 
-    Currently:
-        Downloads full history.
+    Current behaviour:
+    - If cache exists → Load from cache.
+    - Otherwise → Download full history and save it.
 
-    Later:
-        - Load cache
-        - Update missing candles
-        - Save cache
+    Later we'll add:
+    - Download only missing candles.
     """
 
-    return download_full_history(
-        symbol,
-        start_date,
-        end_date,
-    )
+    if cache_exists(symbol):
+
+        print(f"Loading {symbol} from cache...")
+
+        return load_cache(symbol)
+
+    df = download_full_history(symbol)
+
+    save_cache(symbol, df)
+
+    return df

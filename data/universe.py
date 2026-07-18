@@ -1,5 +1,7 @@
 from pathlib import Path
 import pandas as pd
+import requests
+from io import StringIO
 
 # URL of the latest NSE Equity Securities CSV
 NSE_EQUITY_URL = (
@@ -17,24 +19,39 @@ def refresh_universe() -> pd.DataFrame:
 
     print("Downloading latest NSE stock universe...")
 
-    df = pd.read_csv(NSE_EQUITY_URL)
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/138.0.0.0 Safari/537.36"
+        )
+    }
+    print("Step 1 - Sending request...")
 
-    # Keep only the SYMBOL column
+
+    response = requests.get(
+        NSE_EQUITY_URL,
+        headers=headers,
+        timeout=20,
+    )
+    print("Step 2 - Request completed.")
+
+    response.raise_for_status()
+
+    print("Step 3 - Status OK.")
+
+    df = pd.read_csv(StringIO(response.text))
+
     df = df[["SYMBOL"]].copy()
 
-    # Remove duplicates
     df.drop_duplicates(inplace=True)
 
-    # Convert to Yahoo Finance format
     df["SYMBOL"] = df["SYMBOL"].astype(str) + ".NS"
 
-    # Sort alphabetically
     df.sort_values("SYMBOL", inplace=True)
 
-    # Reset index
     df.reset_index(drop=True, inplace=True)
 
-    # Save locally
     df.to_csv(CSV_PATH, index=False)
 
     print(f"Saved {len(df)} symbols.")
