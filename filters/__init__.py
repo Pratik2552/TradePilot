@@ -1,0 +1,3 @@
+"""
+TradePilot stock filtration modules.
+"""

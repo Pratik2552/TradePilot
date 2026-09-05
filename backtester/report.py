@@ -2,8 +2,6 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import MIN_STOCK_PRICE
-
 from strategy.golden_cross import (
     find_golden_crosses,
 )
@@ -17,6 +15,7 @@ from config import (
     BACKTEST_YEARS,
 )
 
+
 def generate_trade_report(
     symbol: str,
     df: pd.DataFrame,
@@ -26,45 +25,73 @@ def generate_trade_report(
     Generate historical candidate trades.
 
     Golden Cross:
-        confirmed on Day T close.
+        Confirmed Day T close.
 
     Entry:
         Day T+1 open.
 
-    Hard stop:
-        can exit on the same day as entry.
+    CLOSED:
+        Trade exited using actual strategy logic.
 
-    Prevents overlapping trades for the same symbol.
+    OPEN:
+        Trade remains active at end of available data.
+
+    Prevents overlapping trades for the same stock.
     """
 
     valid_trades = []
     invalid_trades = []
 
-    if df is None or df.empty:
+    if (
+        df is None
+        or df.empty
+    ):
         return pd.DataFrame()
 
     df = (
         df.copy()
-        .reset_index(drop=True)
+        .reset_index(
+            drop=True
+        )
     )
+
+    # ==================================================
+    # DATES
+    # ==================================================
+
+    df["Date"] = pd.to_datetime(
+        df["Date"]
+    )
+
+    # ==================================================
+    # GOLDEN CROSSES
+    # ==================================================
 
     golden_crosses = (
-        find_golden_crosses(df)
+        find_golden_crosses(
+            df
+        )
     )
+
     # ==================================================
-    # LIMIT SIGNALS TO LAST N YEARS
+    # LIMIT TO BACKTEST YEARS
     # ==================================================
 
-    df["Date"] = pd.to_datetime(df["Date"])
+    latest_date = (
+        df["Date"].max()
+    )
 
-    latest_date = df["Date"].max()
-
-    backtest_start = latest_date - pd.DateOffset(
-        years=BACKTEST_YEARS
+    backtest_start = (
+        latest_date
+        - pd.DateOffset(
+            years=BACKTEST_YEARS
+        )
     )
 
     golden_crosses = golden_crosses[
-        pd.to_datetime(golden_crosses["Date"])
+        pd.to_datetime(
+            golden_crosses["Date"]
+        )
         >= backtest_start
     ].copy()
 
@@ -77,7 +104,9 @@ def generate_trade_report(
 
     last_exit_position = -1
 
-    for signal_position in golden_crosses.index:
+    for signal_position in (
+        golden_crosses.index
+    ):
 
         if (
             signal_position
@@ -85,9 +114,9 @@ def generate_trade_report(
         ):
             continue
 
-        # ----------------------------------------------
-        # Entry occurs on next trading candle
-        # ----------------------------------------------
+        # ==================================================
+        # ENTRY NEXT DAY OPEN
+        # ==================================================
 
         execution_position = (
             signal_position + 1
@@ -108,21 +137,19 @@ def generate_trade_report(
             errors="coerce",
         )
 
-        if pd.isna(entry_price):
+        if pd.isna(
+            entry_price
+        ):
             continue
 
         entry_price = float(
             entry_price
         )
 
-        # ----------------------------------------------
-        # Penny-stock filter uses ACTUAL entry price
-        # ----------------------------------------------
-
         if (
             entry_price <= 0
-            or
-            entry_price < MIN_STOCK_PRICE
+            or entry_price
+            < MIN_STOCK_PRICE
         ):
             continue
 
@@ -131,42 +158,85 @@ def generate_trade_report(
         # ==================================================
 
         trade = simulate_trade(
+
             df=df,
+
             symbol=symbol,
-            entry_index=signal_position,
-            gap_threshold=gap_threshold,
+
+            entry_index=
+                signal_position,
+
+            gap_threshold=
+                gap_threshold,
         )
 
         if trade is None:
             continue
-
-        # ==================================================
-        # REMEMBER EXIT LOCATION
-        # ==================================================
-
-        exit_matches = df.index[
-            df["Date"]
-            == trade.exit_date
-        ]
-
-        if len(exit_matches) > 0:
-
-            last_exit_position = int(
-                exit_matches[0]
-            )
 
         trade_dict = (
             trade.to_dict()
         )
 
         # ==================================================
-        # VALIDATE
+        # SAVE ACTUAL GOLDEN CROSS DATE
+        #
+        # This is also used by the volume filter.
+        # ==================================================
+
+        trade_dict[
+            "Golden Cross Date"
+        ] = df.iloc[
+            signal_position
+        ]["Date"]
+
+        status = str(
+            trade_dict.get(
+                "Status",
+                "CLOSED",
+            )
+        ).upper()
+
+        # ==================================================
+        # OVERLAP CONTROL
+        # ==================================================
+
+        if status == "CLOSED":
+
+            exit_matches = df.index[
+                df["Date"]
+                == trade.exit_date
+            ]
+
+            if (
+                len(exit_matches)
+                > 0
+            ):
+
+                last_exit_position = int(
+                    exit_matches[0]
+                )
+
+        else:
+
+            # Trade remains open until end
+            # of available dataset.
+            #
+            # Therefore another position in the
+            # same symbol cannot be opened.
+            last_exit_position = (
+                len(df) - 1
+            )
+
+        # ==================================================
+        # VALIDATION
         # ==================================================
 
         reason = None
 
         if (
-            trade_dict["Entry Price"]
+            trade_dict[
+                "Entry Price"
+            ]
             <= 0
         ):
 
@@ -174,39 +244,130 @@ def generate_trade_report(
                 "Entry Price <= 0"
             )
 
-        elif (
-            trade_dict["Exit Price"]
-            <= 0
-        ):
+        # ==================================================
+        # CLOSED VALIDATION
+        # ==================================================
 
-            reason = (
-                "Exit Price <= 0"
+        elif status == "CLOSED":
+
+            exit_price = (
+                trade_dict.get(
+                    "Exit Price"
+                )
             )
 
-        # Same-day trade = Holding Days 0.
-        # That is valid.
-        elif (
-            trade_dict["Holding Days"]
-            < 0
-        ):
-
-            reason = (
-                "Invalid Holding Days"
+            exit_date = (
+                trade_dict.get(
+                    "Exit Date"
+                )
             )
 
-        elif (
-            pd.to_datetime(
-                trade_dict["Exit Date"]
-            )
-            <
-            pd.to_datetime(
-                trade_dict["Entry Date"]
-            )
-        ):
+            if (
+                exit_price is None
+                or pd.isna(exit_price)
+                or exit_price <= 0
+            ):
 
-            reason = (
-                "Exit Date < Entry Date"
+                reason = (
+                    "Invalid Exit Price"
+                )
+
+            elif (
+                exit_date is None
+                or pd.isna(exit_date)
+            ):
+
+                reason = (
+                    "Missing Exit Date"
+                )
+
+            elif (
+                trade_dict[
+                    "Holding Days"
+                ]
+                < 0
+            ):
+
+                reason = (
+                    "Invalid Holding Days"
+                )
+
+            elif (
+                pd.to_datetime(
+                    exit_date
+                )
+                <
+                pd.to_datetime(
+                    trade_dict[
+                        "Entry Date"
+                    ]
+                )
+            ):
+
+                reason = (
+                    "Exit Date < Entry Date"
+                )
+
+        # ==================================================
+        # OPEN VALIDATION
+        # ==================================================
+
+        else:
+
+            current_price = (
+                trade_dict.get(
+                    "Current Price"
+                )
             )
+
+            current_date = (
+                trade_dict.get(
+                    "Current Date"
+                )
+            )
+
+            if (
+                current_price is None
+                or pd.isna(
+                    current_price
+                )
+                or current_price <= 0
+            ):
+
+                reason = (
+                    "Invalid Current Price"
+                )
+
+            elif (
+                current_date is None
+                or pd.isna(
+                    current_date
+                )
+            ):
+
+                reason = (
+                    "Missing Current Date"
+                )
+
+            elif (
+                pd.to_datetime(
+                    current_date
+                )
+                <
+                pd.to_datetime(
+                    trade_dict[
+                        "Entry Date"
+                    ]
+                )
+            ):
+
+                reason = (
+                    "Current Date < Entry Date"
+                )
+
+        # ==================================================
+        # STORE
+        # ==================================================
 
         if reason is None:
 
@@ -225,7 +386,7 @@ def generate_trade_report(
             )
 
     # ==================================================
-    # INVALID TRADES LOG
+    # INVALID TRADE LOG
     # ==================================================
 
     if invalid_trades:

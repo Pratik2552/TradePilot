@@ -1,2 +1,2 @@
-Initial Capital,Final Equity,Cash,Open Positions,Candidate Trades,Executed Trades,Rejected Trades
-100000,264106.7974608378,264106.7974608378,0,6967,336,6631
+Initial Capital,Final Equity,Cash,Market Value Open Positions,Open Positions,Raw Candidate Trades,Filter Rejected Trades,Passed Filter,Closed Executed Trades,Open Executed Trades,Portfolio Rejected Trades
+100000,342821.25500970427,0.0,342821.25500970427,10,7584,6322,1262,246,10,1006

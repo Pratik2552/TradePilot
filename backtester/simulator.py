@@ -24,25 +24,36 @@ def simulate_trade(
         Buy Day T+1 open.
 
     HARD STOP:
-        If price touches -15% intraday,
-        exit immediately at the stop price.
+        If price touches stop intraday,
+        exit at stop price.
 
-        If stock gaps below the stop,
-        exit at the actual opening price.
+        If stock gaps below stop,
+        exit at actual opening price.
 
     NORMAL EXIT:
-        EMA/gap/death-cross signal confirmed
-        at Day X close.
+        Strategy exit confirmed at Day X close.
         Exit Day X+1 open.
+
+    OPEN POSITION:
+        If no exit has occurred by the end of
+        available data, the trade remains OPEN.
+
+        It is marked-to-market using the latest
+        available closing price.
     """
 
     # ==================================================
-    # ENTRY EXECUTION
+    # ENTRY
     # ==================================================
 
-    execution_index = entry_index + 1
+    execution_index = (
+        entry_index + 1
+    )
 
-    if execution_index >= len(df):
+    if (
+        execution_index
+        >= len(df)
+    ):
         return None
 
     entry = df.iloc[
@@ -65,7 +76,7 @@ def simulate_trade(
     )
 
     # ==================================================
-    # HARD STOP PRICE
+    # STOP LOSS
     # ==================================================
 
     stop_price = (
@@ -77,11 +88,14 @@ def simulate_trade(
     )
 
     # ==================================================
-    # TRADE STATE
+    # STATE
     # ==================================================
 
     highest_gap = 0.0
-    highest_gap_date = entry["Date"]
+
+    highest_gap_date = (
+        entry["Date"]
+    )
 
     bearish_cross_seen = False
     bearish_cross_date = None
@@ -93,6 +107,14 @@ def simulate_trade(
 
     highest_price = entry_price
     lowest_price = entry_price
+
+    latest_price = entry_price
+
+    latest_date = (
+        entry["Date"]
+    )
+
+    pending_exit_reason = None
 
     # ==================================================
     # WALK FORWARD
@@ -151,15 +173,30 @@ def simulate_trade(
 
         if any(
             pd.isna(value)
-            for value in required_prices
+            for value
+            in required_prices
         ):
             return None
 
-        open_price = float(open_price)
-        high_price = float(high_price)
-        low_price = float(low_price)
-        close_price = float(close_price)
-        prev_close = float(prev_close)
+        open_price = float(
+            open_price
+        )
+
+        high_price = float(
+            high_price
+        )
+
+        low_price = float(
+            low_price
+        )
+
+        close_price = float(
+            close_price
+        )
+
+        prev_close = float(
+            prev_close
+        )
 
         if (
             open_price <= 0
@@ -170,8 +207,16 @@ def simulate_trade(
         ):
             return None
 
+        latest_price = (
+            close_price
+        )
+
+        latest_date = (
+            row["Date"]
+        )
+
         # ==================================================
-        # DATA SANITY CHECK
+        # DATA SANITY
         # ==================================================
 
         daily_return = (
@@ -189,25 +234,17 @@ def simulate_trade(
             return None
 
         # ==================================================
-        # HARD STOP LOSS
-        # ==================================================
-
-        # ----------------------------------------------
+        # HARD STOP
+        #
         # CASE 1:
-        # Stock gaps below the stop.
-        #
-        # Example:
-        # Entry 100
-        # Stop 85
-        # Next open 78
-        #
-        # We cannot pretend we sold at 85.
-        # Actual exit = 78.
-        # ----------------------------------------------
+        # GAP BELOW STOP
+        # ==================================================
 
         if open_price <= stop_price:
 
-            exit_price = open_price
+            exit_price = (
+                open_price
+            )
 
             realized_return = (
                 (
@@ -228,16 +265,26 @@ def simulate_trade(
             mae = realized_return
 
             return Trade(
+
                 symbol=symbol,
 
-                entry_date=entry["Date"],
-                exit_date=row["Date"],
+                entry_date=
+                    entry["Date"],
 
-                entry_price=entry_price,
-                exit_price=exit_price,
+                exit_date=
+                    row["Date"],
 
-                highest_gap=highest_gap,
-                highest_gap_date=highest_gap_date,
+                entry_price=
+                    entry_price,
+
+                exit_price=
+                    exit_price,
+
+                highest_gap=
+                    highest_gap,
+
+                highest_gap_date=
+                    highest_gap_date,
 
                 bearish_cross_date=
                     bearish_cross_date,
@@ -247,30 +294,29 @@ def simulate_trade(
 
                 exit_gap=None,
 
-                exit_reason="Stop Loss",
+                exit_reason=
+                    "Stop Loss",
 
-                # Exit happens at market open
-                exit_timing="OPEN",
+                exit_timing=
+                    "OPEN",
 
                 mfe=mfe,
+
                 mae=mae,
+
+                status="CLOSED",
             )
 
-        # ----------------------------------------------
+        # ==================================================
         # CASE 2:
-        # Price touches stop intraday.
-        #
-        # Example:
-        # Entry 100
-        # Low 84
-        # Stop 85
-        #
-        # Assume stop order fills at 85.
-        # ----------------------------------------------
+        # INTRADAY STOP
+        # ==================================================
 
         if low_price <= stop_price:
 
-            exit_price = stop_price
+            exit_price = (
+                stop_price
+            )
 
             mfe = (
                 (
@@ -280,19 +326,31 @@ def simulate_trade(
                 / entry_price
             ) * 100
 
-            mae = STOP_LOSS_PERCENT
+            mae = (
+                STOP_LOSS_PERCENT
+            )
 
             return Trade(
+
                 symbol=symbol,
 
-                entry_date=entry["Date"],
-                exit_date=row["Date"],
+                entry_date=
+                    entry["Date"],
 
-                entry_price=entry_price,
-                exit_price=exit_price,
+                exit_date=
+                    row["Date"],
 
-                highest_gap=highest_gap,
-                highest_gap_date=highest_gap_date,
+                entry_price=
+                    entry_price,
+
+                exit_price=
+                    exit_price,
+
+                highest_gap=
+                    highest_gap,
+
+                highest_gap_date=
+                    highest_gap_date,
 
                 bearish_cross_date=
                     bearish_cross_date,
@@ -302,17 +360,21 @@ def simulate_trade(
 
                 exit_gap=None,
 
-                exit_reason="Stop Loss",
+                exit_reason=
+                    "Stop Loss",
 
-                # Stop triggered during trading session
-                exit_timing="INTRADAY",
+                exit_timing=
+                    "INTRADAY",
 
                 mfe=mfe,
+
                 mae=mae,
+
+                status="CLOSED",
             )
 
         # ==================================================
-        # TRACK MFE / MAE
+        # MFE / MAE
         # ==================================================
 
         highest_price = max(
@@ -354,6 +416,7 @@ def simulate_trade(
         # ==================================================
 
         ema_values = [
+
             row["EMA9"],
             row["EMA21"],
             row["EMA50"],
@@ -367,12 +430,13 @@ def simulate_trade(
 
         if any(
             pd.isna(value)
-            for value in ema_values
+            for value
+            in ema_values
         ):
             continue
 
         # ==================================================
-        # EMA50 - EMA200 GAP
+        # EMA50 / EMA200 GAP
         # ==================================================
 
         gap = (
@@ -383,6 +447,7 @@ def simulate_trade(
         if gap > highest_gap:
 
             highest_gap = gap
+
             highest_gap_date = (
                 row["Date"]
             )
@@ -391,7 +456,8 @@ def simulate_trade(
             continue
 
         gap_ratio = (
-            gap / highest_gap
+            gap
+            / highest_gap
         )
 
         # ==================================================
@@ -399,9 +465,14 @@ def simulate_trade(
         # ==================================================
 
         bearish_cross = (
-            row["EMA9"] < row["EMA21"]
+
+            row["EMA9"]
+            < row["EMA21"]
+
             and
-            prev["EMA9"] >= prev["EMA21"]
+
+            prev["EMA9"]
+            >= prev["EMA21"]
         )
 
         if (
@@ -420,8 +491,11 @@ def simulate_trade(
         # ==================================================
 
         if (
-            gap_ratio <= gap_threshold
+            gap_ratio
+            <= gap_threshold
+
             and
+
             not gap_condition_met
         ):
 
@@ -436,20 +510,27 @@ def simulate_trade(
         # ==================================================
 
         death_cross = (
-            row["EMA50"] < row["EMA200"]
+
+            row["EMA50"]
+            < row["EMA200"]
+
             and
-            prev["EMA50"] >= prev["EMA200"]
+
+            prev["EMA50"]
+            >= prev["EMA200"]
         )
 
         if death_cross:
             death_cross_seen = True
 
         # ==================================================
-        # NORMAL STRATEGY EXIT SIGNAL
+        # EXIT SIGNAL
         # ==================================================
 
         exit_reason = get_exit_signal(
+
             state={
+
                 "bearish_seen":
                     bearish_cross_seen,
 
@@ -478,11 +559,74 @@ def simulate_trade(
             i + 1
         )
 
+        # ==================================================
+        # EXIT SIGNAL EXISTS,
+        # BUT NEXT CANDLE DOES NOT EXIST YET.
+        #
+        # KEEP POSITION OPEN.
+        # ==================================================
+
         if (
             exit_execution_index
             >= len(df)
         ):
-            return None
+
+            pending_exit_reason = (
+                exit_reason
+            )
+
+            return Trade(
+
+                symbol=symbol,
+
+                entry_date=
+                    entry["Date"],
+
+                exit_date=None,
+
+                entry_price=
+                    entry_price,
+
+                exit_price=None,
+
+                highest_gap=
+                    highest_gap,
+
+                highest_gap_date=
+                    highest_gap_date,
+
+                bearish_cross_date=
+                    bearish_cross_date,
+
+                gap_condition_date=
+                    gap_condition_date,
+
+                exit_gap=
+                    gap_ratio,
+
+                exit_reason=None,
+
+                exit_timing=None,
+
+                mfe=mfe,
+
+                mae=mae,
+
+                status="OPEN",
+
+                current_price=
+                    close_price,
+
+                current_date=
+                    row["Date"],
+
+                pending_exit_reason=
+                    pending_exit_reason,
+            )
+
+        # ==================================================
+        # EXIT CAN ACTUALLY EXECUTE
+        # ==================================================
 
         exit_row = df.iloc[
             exit_execution_index
@@ -504,6 +648,7 @@ def simulate_trade(
         )
 
         return Trade(
+
             symbol=symbol,
 
             entry_date=
@@ -536,10 +681,88 @@ def simulate_trade(
             exit_reason=
                 exit_reason,
 
-            exit_timing="OPEN",
+            exit_timing=
+                "OPEN",
 
             mfe=mfe,
+
             mae=mae,
+
+            status="CLOSED",
         )
 
-    return None
+    # ==================================================
+    # END OF DATA
+    #
+    # OLD LOGIC:
+    #
+    # return None
+    #
+    # NEW LOGIC:
+    #
+    # KEEP POSITION OPEN
+    # ==================================================
+
+    mfe = (
+        (
+            highest_price
+            - entry_price
+        )
+        / entry_price
+    ) * 100
+
+    mae = (
+        (
+            lowest_price
+            - entry_price
+        )
+        / entry_price
+    ) * 100
+
+    return Trade(
+
+        symbol=symbol,
+
+        entry_date=
+            entry["Date"],
+
+        exit_date=None,
+
+        entry_price=
+            entry_price,
+
+        exit_price=None,
+
+        highest_gap=
+            highest_gap,
+
+        highest_gap_date=
+            highest_gap_date,
+
+        bearish_cross_date=
+            bearish_cross_date,
+
+        gap_condition_date=
+            gap_condition_date,
+
+        exit_gap=None,
+
+        exit_reason=None,
+
+        exit_timing=None,
+
+        mfe=mfe,
+
+        mae=mae,
+
+        status="OPEN",
+
+        current_price=
+            latest_price,
+
+        current_date=
+            latest_date,
+
+        pending_exit_reason=
+            pending_exit_reason,
+    )

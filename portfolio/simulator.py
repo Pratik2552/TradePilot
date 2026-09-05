@@ -1,6 +1,7 @@
 import pandas as pd
 
 from portfolio.portfolio import Portfolio
+
 from data.downloader import (
     get_cached_stock_data,
 )
@@ -16,7 +17,9 @@ class PortfolioSimulator:
         max_positions=10,
     ):
 
-        self.trades = trades.copy()
+        self.trades = (
+            trades.copy()
+        )
 
         self.portfolio = Portfolio(
             initial_capital,
@@ -27,6 +30,7 @@ class PortfolioSimulator:
         self.daily_equity = []
 
         self.executed_trades = []
+
         self.rejected_trades = []
 
     # ==================================================
@@ -44,29 +48,56 @@ class PortfolioSimulator:
         self.trades[
             "Entry Date"
         ] = pd.to_datetime(
+
             self.trades[
                 "Entry Date"
-            ]
+            ],
+
+            errors="coerce",
         )
 
-        self.trades[
+        if (
             "Exit Date"
-        ] = pd.to_datetime(
+            in self.trades.columns
+        ):
+
             self.trades[
                 "Exit Date"
-            ]
-        )
+            ] = pd.to_datetime(
 
-        # Deterministic ordering.
-        #
-        # Never rank using:
-        # Return %, Exit Price, MFE, MAE, etc.
+                self.trades[
+                    "Exit Date"
+                ],
+
+                errors="coerce",
+            )
+
+        # ==================================================
+        # BACKWARD COMPATIBILITY
+        # ==================================================
+
+        if (
+            "Status"
+            not in self.trades.columns
+        ):
+
+            self.trades[
+                "Status"
+            ] = "CLOSED"
+
+        # ==================================================
+        # DETERMINISTIC ORDER
+        # ==================================================
+
         self.trades.sort_values(
+
             [
                 "Entry Date",
                 "Symbol",
             ],
+
             kind="mergesort",
+
             inplace=True,
         )
 
@@ -76,7 +107,7 @@ class PortfolioSimulator:
         )
 
     # ==================================================
-    # RECORD REJECTION
+    # REJECT
     # ==================================================
 
     def _reject(
@@ -128,15 +159,26 @@ class PortfolioSimulator:
         )
 
         self.portfolio.close_position(
+
             position,
-            exit_price=exit_price,
-            exit_date=current_date,
-            reason=position.exit_reason,
+
+            exit_price=
+                exit_price,
+
+            exit_date=
+                current_date,
+
+            reason=
+                position.exit_reason,
         )
 
         record = (
             position.source_trade.copy()
         )
+
+        record[
+            "Status"
+        ] = "CLOSED"
 
         record[
             "Entry Date"
@@ -157,6 +199,18 @@ class PortfolioSimulator:
         record[
             "Return %"
         ] = realized_return
+
+        record[
+            "Current Date"
+        ] = None
+
+        record[
+            "Current Price"
+        ] = None
+
+        record[
+            "Unrealized Return %"
+        ] = None
 
         record[
             "Invested"
@@ -196,6 +250,7 @@ class PortfolioSimulator:
         ):
 
             return pd.DataFrame(
+
                 columns=[
                     "Date",
                     "Cash",
@@ -208,10 +263,13 @@ class PortfolioSimulator:
         symbols = (
             self.trades[
                 "Symbol"
-            ].unique()
+            ]
+            .dropna()
+            .unique()
         )
 
         history = {}
+
         calendar = set()
 
         # ==================================================
@@ -236,10 +294,13 @@ class PortfolioSimulator:
             )
 
             df.drop_duplicates(
+
                 subset=[
                     "Date"
                 ],
+
                 keep="last",
+
                 inplace=True,
             )
 
@@ -273,7 +334,7 @@ class PortfolioSimulator:
         for current_date in calendar:
 
             # ==================================================
-            # 1. VALUE EXISTING POSITIONS AT MARKET OPEN
+            # 1. VALUE EXISTING POSITIONS AT OPEN
             # ==================================================
 
             for position in open_trades:
@@ -302,11 +363,17 @@ class PortfolioSimulator:
                 ):
 
                     position.current_price = (
-                        float(open_price)
+                        float(
+                            open_price
+                        )
+                    )
+
+                    position.current_date = (
+                        current_date
                     )
 
             # ==================================================
-            # 2. CLOSE POSITIONS THAT EXIT AT TODAY'S OPEN
+            # 2. CLOSE TODAY'S OPEN EXITS
             # ==================================================
 
             still_open = []
@@ -314,9 +381,23 @@ class PortfolioSimulator:
             for position in open_trades:
 
                 should_close = (
+
+                    position.target_exit
+                    is not None
+
+                    and
+
+                    not pd.isna(
+                        position.target_exit
+                    )
+
+                    and
+
                     current_date
                     == position.target_exit
+
                     and
+
                     position.exit_timing
                     == "OPEN"
                 )
@@ -339,11 +420,13 @@ class PortfolioSimulator:
             )
 
             # ==================================================
-            # 3. OPEN TODAY'S NEW POSITIONS AT OPEN
+            # 3. TODAY'S ENTRIES
             # ==================================================
 
             todays_entries = (
+
                 self.trades[
+
                     self.trades[
                         "Entry Date"
                     ]
@@ -356,14 +439,55 @@ class PortfolioSimulator:
             ):
 
                 symbol = (
-                    trade["Symbol"]
+                    trade[
+                        "Symbol"
+                    ]
                 )
 
                 # ------------------------------------------
-                # Duplicate symbol check
+                # STATUS
+                # ------------------------------------------
+
+                raw_status = (
+                    trade.get(
+                        "Status",
+                        None,
+                    )
+                )
+
+                if (
+                    raw_status is None
+                    or pd.isna(raw_status)
+                ):
+
+                    if (
+                        pd.notna(
+                            trade.get(
+                                "Exit Date"
+                            )
+                        )
+                    ):
+                        trade_status = (
+                            "CLOSED"
+                        )
+
+                    else:
+                        trade_status = (
+                            "OPEN"
+                        )
+
+                else:
+
+                    trade_status = str(
+                        raw_status
+                    ).upper()
+
+                # ------------------------------------------
+                # DUPLICATE SYMBOL
                 # ------------------------------------------
 
                 duplicate_symbol = any(
+
                     position.symbol
                     == symbol
 
@@ -381,7 +505,7 @@ class PortfolioSimulator:
                     continue
 
                 # ------------------------------------------
-                # Max positions
+                # MAX POSITIONS
                 # ------------------------------------------
 
                 if (
@@ -400,16 +524,16 @@ class PortfolioSimulator:
                     continue
 
                 # ------------------------------------------
-                # Entry price
+                # ENTRY PRICE
                 # ------------------------------------------
 
-                entry_price = (
-                    pd.to_numeric(
-                        trade[
-                            "Entry Price"
-                        ],
-                        errors="coerce",
-                    )
+                entry_price = pd.to_numeric(
+
+                    trade[
+                        "Entry Price"
+                    ],
+
+                    errors="coerce",
                 )
 
                 if (
@@ -424,12 +548,54 @@ class PortfolioSimulator:
 
                     continue
 
+                # ==================================================
+                # VALIDATE CLOSED TRADE BEFORE OPENING
+                # ==================================================
+
+                exit_date = None
+                exit_price = None
+
+                if (
+                    trade_status
+                    == "CLOSED"
+                ):
+
+                    exit_date = (
+                        trade.get(
+                            "Exit Date"
+                        )
+                    )
+
+                    exit_price = pd.to_numeric(
+
+                        trade.get(
+                            "Exit Price"
+                        ),
+
+                        errors="coerce",
+                    )
+
+                    if (
+                        exit_date is None
+                        or pd.isna(exit_date)
+                        or pd.isna(exit_price)
+                        or exit_price <= 0
+                    ):
+
+                        self._reject(
+                            trade,
+                            "Invalid Historical Exit",
+                        )
+
+                        continue
+
                 # ------------------------------------------
-                # Open position
+                # OPEN PORTFOLIO POSITION
                 # ------------------------------------------
 
                 position = (
                     self.portfolio.open_position(
+
                         symbol=symbol,
 
                         entry_date=
@@ -453,44 +619,68 @@ class PortfolioSimulator:
 
                     continue
 
-                # ------------------------------------------
-                # Store strategy exit information
-                # ------------------------------------------
+                # ==================================================
+                # CLOSED HISTORICAL TRADE
+                # ==================================================
 
-                position.target_exit = (
-                    trade[
-                        "Exit Date"
-                    ]
-                )
+                if (
+                    trade_status
+                    == "CLOSED"
+                ):
 
-                position.target_exit_price = (
-                    float(
-                        trade[
-                            "Exit Price"
-                        ]
+                    position.target_exit = (
+                        exit_date
                     )
-                )
 
-                position.exit_reason = (
-                    trade[
-                        "Exit Reason"
-                    ]
-                )
-
-                # Old trade files may not have this column.
-                position.exit_timing = (
-                    trade.get(
-                        "Exit Timing",
-                        "OPEN",
+                    position.target_exit_price = (
+                        float(
+                            exit_price
+                        )
                     )
-                )
+
+                    position.exit_reason = (
+                        trade.get(
+                            "Exit Reason"
+                        )
+                    )
+
+                    position.exit_timing = (
+                        trade.get(
+                            "Exit Timing",
+                            "OPEN",
+                        )
+                    )
+
+                # ==================================================
+                # OPEN POSITION
+                # ==================================================
+
+                else:
+
+                    position.target_exit = None
+
+                    position.target_exit_price = (
+                        None
+                    )
+
+                    position.exit_reason = None
+
+                    position.exit_timing = None
 
                 position.source_trade = (
                     trade.to_dict()
                 )
 
                 position.current_price = (
-                    float(entry_price)
+                    float(
+                        entry_price
+                    )
+                )
+
+                position.current_date = (
+                    trade[
+                        "Entry Date"
+                    ]
                 )
 
                 open_trades.append(
@@ -498,14 +688,7 @@ class PortfolioSimulator:
                 )
 
             # ==================================================
-            # 4. PROCESS INTRADAY STOP-LOSS EXITS
-            # ==================================================
-            #
-            # This happens AFTER morning entries.
-            #
-            # An intraday stop cannot free a slot/cash
-            # for an order that was already supposed
-            # to execute at today's market open.
+            # 4. INTRADAY STOP EXITS
             # ==================================================
 
             still_open = []
@@ -513,9 +696,23 @@ class PortfolioSimulator:
             for position in open_trades:
 
                 should_close = (
+
+                    position.target_exit
+                    is not None
+
+                    and
+
+                    not pd.isna(
+                        position.target_exit
+                    )
+
+                    and
+
                     current_date
                     == position.target_exit
+
                     and
+
                     position.exit_timing
                     == "INTRADAY"
                 )
@@ -538,7 +735,7 @@ class PortfolioSimulator:
             )
 
             # ==================================================
-            # 5. MARK REMAINING POSITIONS AT CLOSE
+            # 5. MARK OPEN POSITIONS AT CLOSE
             # ==================================================
 
             for position in open_trades:
@@ -567,14 +764,21 @@ class PortfolioSimulator:
                 ):
 
                     position.current_price = (
-                        float(close_price)
+                        float(
+                            close_price
+                        )
+                    )
+
+                    position.current_date = (
+                        current_date
                     )
 
             # ==================================================
-            # 6. RECORD DAILY EQUITY
+            # 6. DAILY EQUITY
             # ==================================================
 
             invested = sum(
+
                 position.market_value()
 
                 for position
@@ -582,7 +786,9 @@ class PortfolioSimulator:
             )
 
             self.daily_equity.append(
+
                 {
+
                     "Date":
                         current_date,
 
@@ -607,7 +813,7 @@ class PortfolioSimulator:
         )
 
     # ==================================================
-    # EXECUTED TRADES
+    # CLOSED EXECUTED TRADES
     # ==================================================
 
     def get_executed_trades(
@@ -619,7 +825,101 @@ class PortfolioSimulator:
         )
 
     # ==================================================
-    # REJECTED TRADES
+    # OPEN POSITIONS
+    # ==================================================
+
+    def get_open_trades(
+        self,
+    ):
+
+        records = []
+
+        for position in (
+            self.portfolio.open_positions
+        ):
+
+            record = (
+                position.source_trade.copy()
+            )
+
+            current_price = float(
+                position.current_price
+            )
+
+            market_value = (
+                position.shares
+                * current_price
+            )
+
+            unrealized_pnl = (
+                market_value
+                - position.invested
+            )
+
+            unrealized_return = (
+                unrealized_pnl
+                / position.invested
+                * 100
+            )
+
+            record[
+                "Status"
+            ] = "OPEN"
+
+            record[
+                "Exit Date"
+            ] = None
+
+            record[
+                "Exit Price"
+            ] = None
+
+            record[
+                "Return %"
+            ] = None
+
+            record[
+                "Current Date"
+            ] = getattr(
+                position,
+                "current_date",
+                None,
+            )
+
+            record[
+                "Current Price"
+            ] = current_price
+
+            record[
+                "Unrealized Return %"
+            ] = unrealized_return
+
+            record[
+                "Invested"
+            ] = position.invested
+
+            record[
+                "Shares"
+            ] = position.shares
+
+            record[
+                "Market Value"
+            ] = market_value
+
+            record[
+                "Unrealized P&L"
+            ] = unrealized_pnl
+
+            records.append(
+                record
+            )
+
+        return pd.DataFrame(
+            records
+        )
+
+    # ==================================================
+    # REJECTED
     # ==================================================
 
     def get_rejected_trades(
