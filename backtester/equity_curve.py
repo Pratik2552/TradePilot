@@ -1,44 +1,80 @@
+from pathlib import Path
+
 import pandas as pd
 
 
-def build_equity_curve(
-
-    trades: pd.DataFrame,
-
-    initial_capital: float = 100000,
-
-):
-
+def generate_equity_curve(
+    equity_curve: pd.DataFrame,
+    output_path: str = "results/equity_curve.csv",
+) -> pd.DataFrame:
     """
-    Builds the account equity curve by
-    compounding every completed trade.
+    Validate and save an equity curve produced by PortfolioSimulator.
+
+    IMPORTANT:
+    This function does NOT calculate portfolio returns from trade-level
+    Return % values.
+
+    Portfolio accounting must be performed by PortfolioSimulator, which
+    correctly handles:
+        - cash
+        - position sizing
+        - maximum positions
+        - overlapping trades
+        - mark-to-market values
+        - realized gains/losses
+
+    This function only validates and saves the resulting daily curve.
     """
 
-    equity = initial_capital
+    if equity_curve is None or equity_curve.empty:
+        return pd.DataFrame()
 
-    history = []
+    required_columns = {
+        "Date",
+        "Cash",
+        "Invested",
+        "Portfolio",
+        "Open Positions",
+    }
 
-    trades = trades.sort_values(
-        by="Exit Date"
-    )
+    missing_columns = required_columns - set(equity_curve.columns)
 
-    for _, trade in trades.iterrows():
-
-        equity *= (
-            1 +
-            trade["Return %"] / 100
+    if missing_columns:
+        raise ValueError(
+            f"Equity curve missing required columns: "
+            f"{sorted(missing_columns)}"
         )
 
-        history.append({
+    result = equity_curve.copy()
 
-            "Date": trade["Exit Date"],
+    result["Date"] = pd.to_datetime(result["Date"])
 
-            "Symbol": trade["Symbol"],
+    result.sort_values(
+        "Date",
+        inplace=True,
+    )
 
-            "Return %": trade["Return %"],
+    result.drop_duplicates(
+        subset=["Date"],
+        keep="last",
+        inplace=True,
+    )
 
-            "Equity": round(equity, 2),
+    result.reset_index(
+        drop=True,
+        inplace=True,
+    )
 
-        })
+    output = Path(output_path)
 
-    return pd.DataFrame(history)
+    output.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    result.to_csv(
+        output,
+        index=False,
+    )
+
+    return result

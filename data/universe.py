@@ -1,72 +1,193 @@
 from pathlib import Path
-import pandas as pd
-import requests
+from datetime import date
 from io import StringIO
 
-# URL of the latest NSE Equity Securities CSV
+import pandas as pd
+import requests
+
+
+# ==========================================================
+# Configuration
+# ==========================================================
+
 NSE_EQUITY_URL = (
-    "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+    "https://nsearchives.nseindia.com/"
+    "content/equities/EQUITY_L.csv"
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-CSV_PATH = BASE_DIR / "nse_symbols.csv"
 
+CSV_PATH = (
+    BASE_DIR / "nse_symbols.csv"
+)
+
+SNAPSHOT_DIR = (
+    BASE_DIR / "universe_snapshots"
+)
+
+SNAPSHOT_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
+
+# ==========================================================
+# Download Current NSE Universe
+# ==========================================================
 
 def refresh_universe() -> pd.DataFrame:
     """
-    Downloads the latest NSE equity list and saves it locally.
+    Download the CURRENT NSE equity universe.
+
+    IMPORTANT:
+    This is NOT a historical point-in-time universe.
+
+    Using this universe for historical backtests introduces
+    survivorship bias because companies that were delisted,
+    merged, failed, etc. may not appear here.
     """
 
-    print("Downloading latest NSE stock universe...")
+    print(
+        "Downloading current NSE stock universe..."
+    )
 
     headers = {
         "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Mozilla/5.0 "
+            "(Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
             "Chrome/138.0.0.0 Safari/537.36"
         )
     }
-    print("Step 1 - Sending request...")
-
 
     response = requests.get(
         NSE_EQUITY_URL,
         headers=headers,
         timeout=20,
     )
-    print("Step 2 - Request completed.")
 
     response.raise_for_status()
 
-    print("Step 3 - Status OK.")
+    df = pd.read_csv(
+        StringIO(response.text)
+    )
 
-    df = pd.read_csv(StringIO(response.text))
+    if "SYMBOL" not in df.columns:
+        raise ValueError(
+            "NSE universe file does not contain SYMBOL column."
+        )
 
-    df = df[["SYMBOL"]].copy()
+    df = df[
+        ["SYMBOL"]
+    ].copy()
 
-    df.drop_duplicates(inplace=True)
+    df["SYMBOL"] = (
+        df["SYMBOL"]
+        .astype(str)
+        .str.strip()
+    )
 
-    df["SYMBOL"] = df["SYMBOL"].astype(str) + ".NS"
+    df = df[
+        df["SYMBOL"] != ""
+    ]
 
-    df.sort_values("SYMBOL", inplace=True)
+    df.drop_duplicates(
+        subset=["SYMBOL"],
+        inplace=True,
+    )
 
-    df.reset_index(drop=True, inplace=True)
+    df["SYMBOL"] = (
+        df["SYMBOL"] + ".NS"
+    )
 
-    df.to_csv(CSV_PATH, index=False)
+    df.sort_values(
+        "SYMBOL",
+        inplace=True,
+    )
 
-    print(f"Saved {len(df)} symbols.")
+    df.reset_index(
+        drop=True,
+        inplace=True,
+    )
+
+    # ------------------------------------------------------
+    # Main current-universe cache
+    # ------------------------------------------------------
+
+    df.to_csv(
+        CSV_PATH,
+        index=False,
+    )
+
+    # ------------------------------------------------------
+    # Save dated point-in-time snapshot
+    #
+    # These snapshots will gradually allow future
+    # point-in-time universe testing.
+    # ------------------------------------------------------
+
+    snapshot_path = (
+        SNAPSHOT_DIR
+        / f"{date.today().isoformat()}.csv"
+    )
+
+    df.to_csv(
+        snapshot_path,
+        index=False,
+    )
+
+    print(
+        f"Saved {len(df)} current NSE symbols."
+    )
+
+    print(
+        f"Universe snapshot: {snapshot_path.name}"
+    )
 
     return df
 
 
+# ==========================================================
+# Load Current Universe
+# ==========================================================
+
 def load_symbols() -> list[str]:
     """
-    Loads NSE symbols from the local CSV.
+    Load CURRENT NSE-listed symbols.
+
+    WARNING:
+    Historical backtests using this list are
+    survivorship-biased.
     """
 
     if not CSV_PATH.exists():
         refresh_universe()
 
-    df = pd.read_csv(CSV_PATH)
+    df = pd.read_csv(
+        CSV_PATH
+    )
 
-    return df["SYMBOL"].tolist()
+    if "SYMBOL" not in df.columns:
+        raise ValueError(
+            "Invalid NSE universe cache."
+        )
+
+    return (
+        df["SYMBOL"]
+        .dropna()
+        .astype(str)
+        .tolist()
+    )
+
+
+# ==========================================================
+# Universe Information
+# ==========================================================
+
+def get_universe_mode() -> str:
+    """
+    Describe the universe methodology used by the backtester.
+    """
+
+    return "CURRENT_NSE_UNIVERSE_SURVIVOR_BIASED"

@@ -1,0 +1,14 @@
+{
+  "initialCapital": 100000.0,
+  "riskPerTrade": 2.0,
+  "maxPositions": 10,
+  "emaPeriodFast": 50,
+  "emaPeriodSlow": 200,
+  "stopLossPercent": 15.0,
+  "takeProfitPercent": 20.0,
+  "scanTimeframe": "1D",
+  "universe": "NIFTY50",
+  "goldenCrossLookback": 3,
+  "gapThreshold": 0.5,
+  "allocation": 0.1
+}

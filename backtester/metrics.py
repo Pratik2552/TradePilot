@@ -3,39 +3,82 @@ import pandas as pd
 
 def calculate_metrics(trades: pd.DataFrame) -> dict:
     """
-    Calculate performance metrics from completed trades.
+    Calculate trade-level metrics.
+
+    IMPORTANT:
+    For portfolio performance, this function must receive ONLY
+    trades that were actually executed by PortfolioSimulator.
+
+    Do not pass the full candidate/signal trade list when portfolio
+    constraints such as max positions can reject trades.
     """
 
-    if trades.empty:
+    empty_metrics = {
+        "Total Trades": 0,
+        "Winning Trades": 0,
+        "Losing Trades": 0,
+        "Win Rate (%)": 0,
+        "Average Return (%)": 0,
+        "Median Return (%)": 0,
+        "Max Return (%)": 0,
+        "Max Loss (%)": 0,
+        "Profit Factor": 0,
+        "Average Holding Days": 0,
+    }
 
-        return {
-            "Total Trades": 0,
-            "Winning Trades": 0,
-            "Losing Trades": 0,
-            "Win Rate (%)": 0,
-            "Average Return (%)": 0,
-            "Median Return (%)": 0,
-            "Max Return (%)": 0,
-            "Max Loss (%)": 0,
-            "Profit Factor": 0,
-            "Average Holding Days": 0,
-        }
+    if trades is None or trades.empty:
+        return empty_metrics
+
+    required_columns = {
+        "Return %",
+        "Holding Days",
+    }
+
+    missing = required_columns - set(trades.columns)
+
+    if missing:
+        raise ValueError(
+            f"Missing required metric columns: {sorted(missing)}"
+        )
+
+    trades = trades.copy()
+
+    trades["Return %"] = pd.to_numeric(
+        trades["Return %"],
+        errors="coerce",
+    )
+
+    trades["Holding Days"] = pd.to_numeric(
+        trades["Holding Days"],
+        errors="coerce",
+    )
+
+    trades.dropna(
+        subset=["Return %"],
+        inplace=True,
+    )
+
+    if trades.empty:
+        return empty_metrics
 
     wins = trades[trades["Return %"] > 0]
-    losses = trades[trades["Return %"] <= 0]
+
+    losses = trades[trades["Return %"] < 0]
 
     gross_profit = wins["Return %"].sum()
 
-    gross_loss = abs(losses["Return %"].sum())
-
-    profit_factor = (
-        gross_profit / gross_loss
-        if gross_loss > 0
-        else float("inf")
+    gross_loss = abs(
+        losses["Return %"].sum()
     )
 
-    return {
+    if gross_loss > 0:
+        profit_factor = gross_profit / gross_loss
+    elif gross_profit > 0:
+        profit_factor = float("inf")
+    else:
+        profit_factor = 0
 
+    return {
         "Total Trades": len(trades),
 
         "Winning Trades": len(wins),
@@ -76,5 +119,4 @@ def calculate_metrics(trades: pd.DataFrame) -> dict:
             trades["Holding Days"].mean(),
             2,
         ),
-
     }

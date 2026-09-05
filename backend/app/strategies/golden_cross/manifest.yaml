@@ -1,0 +1,77 @@
+id: golden-cross
+name: Golden Cross
+description: EMA50 crossing above EMA200 — a classic trend-following entry signal on NSE stocks
+version: "1.0.0"
+long_description: |
+  The Golden Cross strategy identifies stocks where the 50-period Exponential
+  Moving Average crosses above the 200-period EMA, signaling a potential shift
+  from bearish to bullish momentum. Entries are confirmed with volume analysis.
+  Exits use a layered approach: stop loss, EMA gap deterioration, or confirmed
+  death cross. Designed for NSE-listed equities on daily timeframe.
+category: trend_following
+author: TradePilot
+tags:
+  - EMA
+  - Trend Following
+  - NSE
+  - Daily
+universe: NSE
+exchange: NSE
+timeframe: 1D
+
+parameters:
+  - key: initial_capital
+    label: Initial Capital (₹)
+    type: number
+    default: 100000
+    min: 10000
+    description: Starting portfolio capital
+
+  - key: allocation
+    label: Allocation per Trade
+    type: number
+    default: 0.10
+    min: 0.05
+    max: 0.30
+    description: Fraction of portfolio equity allocated to each new position
+
+  - key: max_positions
+    label: Max Simultaneous Positions
+    type: integer
+    default: 10
+    min: 1
+    max: 20
+    description: Maximum number of open positions allowed at any time
+
+  - key: stop_loss_percent
+    label: Stop Loss (%)
+    type: number
+    default: -15
+    min: -25
+    max: -5
+    description: Exit trade if return falls below this threshold
+
+  - key: golden_cross_lookback
+    label: Signal Lookback (candles)
+    type: integer
+    default: 3
+    min: 1
+    max: 10
+    description: Consider a golden cross only if it occurred within the last N candles
+
+  - key: gap_threshold
+    label: Gap Exit Threshold
+    type: number
+    default: 0.50
+    min: 0.25
+    max: 0.75
+    description: Exit when EMA50-EMA200 gap falls below this fraction of its peak value
+
+supported_features:
+  scanner: true
+  backtester: true
+  optimizer: false
+  paper_trading: false
+  live_trading: false
+  portfolio: true
+  analytics: true
